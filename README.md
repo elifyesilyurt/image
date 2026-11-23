@@ -5,6 +5,8 @@ Group: Gül Berra Aslan (M1 Perspective Correction) · **Elif Yeşilyurt (M2 Ill
 
 This repository contains **only Module 2**: CLAHE and Homomorphic Filtering (plus the Top-Hat/Black-Hat step written in our method report), applied to the same licence-plate crops and compared with OCR Character Error Rate.
 
+Guideline compliance checklist (TR): [`YONERGE_UYUMU.md`](YONERGE_UYUMU.md)
+
 ## Problem, input, output, evaluation
 | | |
 |---|---|
