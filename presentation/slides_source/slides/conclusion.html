@@ -1,0 +1,15 @@
+<section id="conclusion" class="tone">
+<p class="eyebrow">Conclusion</p>
+<h2>CLAHE by default, homomorphic for dark, uneven plates</h2>
+<table class="rec">
+<tr><th style="width:34%">Method</th><th style="width:22%">For Module 3</th><th>Evidence (CER, n = 50)</th></tr>
+<tr><td>CLAHE</td><td>Default</td><td>0.606, best overall, never clearly worse</td></tr>
+<tr><td>Homomorphic</td><td>Dark / uneven plates</td><td>0.500 on dark; 0.463 on uneven (exploratory)</td></tr>
+<tr><td>Global HE</td><td>Avoid</td><td>0.754, significantly worse than the original</td></tr>
+<tr><td>CLAHE + Top/Black-Hat</td><td>Avoid</td><td>0.663; halos would become false foreground</td></tr>
+</table>
+<p class="small limits"><b>Limits:</b> temporary crops (not Module 1 output) · 50 images from one CCPD subset · Tesseract is not a plate reader (0/50 exact matches, province character rarely read) · image parameters chosen on 3 crops</p>
+<p class="small" style="margin-top:16px"><b>My contribution:</b> Module 2 code and API, 5-method experiment, CER evaluation, figures, notebook and README</p>
+<p class="footer"><span>Elif Yeşilyurt · Module 2</span><span>Code: github.com/elifyesilyurt/image</span></p>
+<aside>So: CLAHE as the default for Module 3, homomorphic for dark or uneven plates, and avoid global equalisation and Top-Hat. Limits: 50 images, temporary crops, and an OCR engine not built for plates. Next, we rerun this with Module 1’s real crops. Thank you.</aside>
+</section>

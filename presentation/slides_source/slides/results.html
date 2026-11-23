@@ -1,0 +1,17 @@
+<section id="results">
+<p class="eyebrow">Results · n = 50, lower CER is better</p>
+<h2>Adaptive beats global, but nothing wins overall</h2>
+<div class="cols">
+<div class="col">
+<img class="chart" src="/_blob/540afd1dd5b9ac238dc0d9f48d8a7129" alt="Bar chart of CER per method for all images and for dark, dark-upper and bright groups">
+<p class="caption">Original 0.620 · Global HE 0.754 · CLAHE 0.606 · CLAHE+Top/Black-Hat 0.663 · Homomorphic 0.614</p>
+</div>
+<div class="nums">
+<div class="num-card bad"><p class="big">0.754</p><p class="small"><b>Global HE is worse</b> than doing nothing: ΔCER 95% CI +0.07 to +0.20</p></div>
+<div class="num-card good"><p class="big">0.606</p><p class="small"><b>CLAHE is safest:</b> best overall, never clearly worse in any subset</p></div>
+<div class="num-card good"><p class="big">0.500</p><p class="small"><b>Homomorphic on dark plates</b>, vs 0.557 for the original (n = 20)</p></div>
+</div>
+</div>
+<p class="footer"><span>Elif Yeşilyurt · Module 2</span><span>Tesseract 5.5.4, chi_sim, psm 8; paired bootstrap, 5,000 resamples</span></p>
+<aside>Global equalisation is the only method significantly worse than doing nothing: the error rate rises from 0.62 to 0.75. CLAHE, its adaptive version, avoids this and is best overall, though not significantly. On dark plates, homomorphic filtering is best at 0.50.</aside>
+</section>

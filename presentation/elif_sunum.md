@@ -1,5 +1,7 @@
 # Elif Yeşilyurt – Modül 2: Aydınlatma Düzeltme (bireysel sunum materyali)
 
+> **Not:** Bu Türkçe taslak ilk çalıştırmaya (`results/`, 4 yöntem) dayanır. Güncel ve İngilizce sunum materyali: [`elif_presentation_EN.md`](elif_presentation_EN.md) (`results_v2/`, 5 yöntem).
+
 ## Katkı tablosu satırı (grup sunumu için)
 | Öğrenci | Görev | Çıktılar |
 |---|---|---|

@@ -1,0 +1,12 @@
+<section id="failures">
+<p class="eyebrow">Failure cases · original → method</p>
+<h2>Why it fails: lost information, amplified artefacts</h2>
+<div class="grid2">
+<div class="fail"><h3>Glare saturation (S49)</h3><p class="small">Clipped pixels hold nothing to recover: CER 1.00 for every method</p><img src="/_blob/91ceb0990c58cfb021522b3887343611" alt="Plate S49 original and after CLAHE, both washed out"></div>
+<div class="fail"><h3>JPEG blocks in the dark (S14)</h3><p class="small">Homomorphic boosts 8×8 block edges inside strokes: CER 0.43 → 1.00</p><img src="/_blob/a4a5adca13e2639bdbdde7fe4c75ad22" alt="Plate S14 original and after homomorphic filtering with visible block artefacts"></div>
+<div class="fail"><h3>Top/Black-Hat halos (S26)</h3><p class="small">Double outlines around characters and frame: CER 0.43 → 1.00</p><img src="/_blob/a692cd30564ff21a6ebd9ed773857ada" alt="Plate S26 original and after CLAHE with top-hat and black-hat, showing halos"></div>
+<div class="fail"><h3>Global HE over-stretch (S06)</h3><p class="small">One mapping saturates the strokes: CER 0.14 → 0.86</p><img src="/_blob/71ec3415c56dcf6c1ea9a8040109e557" alt="Plate S06 original and after global histogram equalisation, strokes merged"></div>
+</div>
+<p class="footer"><span>Elif Yeşilyurt · Module 2</span><span>Left: original crop · right: method output</span></p>
+<aside>Four failure causes, all visible here. Glare clips pixels, so nothing can be recovered. In dark JPEGs, enhancement also amplifies the compression blocks. Top-Hat creates halos. And global equalisation over-stretches until the strokes merge.</aside>
+</section>

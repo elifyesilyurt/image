@@ -1,0 +1,16 @@
+<section id="methods" class="tone">
+<p class="eyebrow">Methods · LAB colour space, L channel only</p>
+<h2>Four ways to correct one plate</h2>
+<div class="cols">
+<img class="strip" src="/_blob/ba82c31916fdd883ecc4f8306240ed9d" alt="Plate S39 shown five times from top to bottom: original, global histogram equalisation, CLAHE, CLAHE with top-hat and black-hat, homomorphic filtering">
+<div class="labels">
+<div class="label"><h3>Original</h3><p class="small">Baseline, no correction</p></div>
+<div class="label"><h3>Global HE</h3><p class="small">One histogram mapping for the whole crop</p></div>
+<div class="label"><h3>CLAHE</h3><p class="small">Equalise per tile with a clip limit (2.0, 8×2 tiles): adaptive, contrast-limited</p></div>
+<div class="label"><h3>CLAHE + Top/Black-Hat</h3><p class="small">L + TopHat − BlackHat, structuring element ≈ 2 × stroke width (from our report)</p></div>
+<div class="label"><h3>Homomorphic</h3><p class="small">f = i·r → ln f = ln i + ln r; FFT high-emphasis filter, γL 0.5 (light), γH 1.5 (edges)</p></div>
+</div>
+</div>
+<p class="footer"><span>Elif Yeşilyurt · Module 2</span><span>Pizer 1987 · Zuiderveld 1994 · Serra 1982 · Oppenheim 1968</span></p>
+<aside>All methods change only the lightness channel, so colours stay. Global equalisation uses one mapping for the whole plate; CLAHE equalises small tiles with a clip limit. Top-Hat and Black-Hat come from our report. Homomorphic filtering takes a logarithm, so illumination and reflectance add up; then, in the Fourier domain, it damps the slow illumination and boosts the edges.</aside>
+</section>

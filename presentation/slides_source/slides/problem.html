@@ -1,0 +1,19 @@
+<section id="problem">
+<p class="eyebrow">Problem &amp; data</p>
+<h2>Uneven light hides the characters before OCR</h2>
+<div class="cols">
+<div class="col">
+<div class="cropbox"><img src="/_blob/a4a5adca13e2639bdbdde7fe4c75ad22" alt="Dark plate crop S14 from CCPD-DB, characters barely visible"></div>
+<p class="caption">Night: dark, low-contrast plate (S14)</p>
+<div class="cropbox"><img src="/_blob/91ceb0990c58cfb021522b3887343611" alt="Glare-washed plate crop S49 from CCPD-DB, characters nearly white on white"></div>
+<p class="caption">Glare: washed-out plate (S49)</p>
+</div>
+<div class="facts">
+<div class="fact"><p class="big">50 plate crops</p><p class="small">CCPD-DB (Xu et al. 2018, MIT): 20 dark, 10 dark-upper, 20 bright</p></div>
+<div class="fact"><p class="big">Same 440×140 crop</p><p class="small">for every method. Temporary rectification, not Module 1’s output</p></div>
+<div class="fact"><p class="big">CER with Tesseract 5.5.4</p><p class="small">Σ edit distance ÷ Σ true characters; same settings; 95% bootstrap CI</p></div>
+</div>
+</div>
+<p class="footer"><span>Elif Yeşilyurt · Module 2</span><span>Data: CCPD (MIT)</span></p>
+<aside>At night plates are too dark; with glare they are washed out. I used 50 MIT-licensed crops from CCPD-DB. Every method gets the same 440 by 140 crop, and I measure Tesseract’s character error rate with identical settings.</aside>
+</section>
