@@ -1,0 +1,4 @@
+median illum_cv of original crops = 0.1491
+uneven ids: S02,S03,S04,S05,S06,S07,S08,S09,S10,S11,S15,S16,S18,S19,S20,S31,S32,S33,S34,S35,S36,S37,S38,S39,S40
+partial_glare ids: S22,S24,S25,S27,S29,S30,S41,S42,S44,S45,S46,S47,S48,S49,S50
+Strata are EXPLORATORY: defined after the first run's results were seen.

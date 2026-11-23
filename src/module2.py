@@ -18,9 +18,11 @@ import numpy as np
 # Central configuration
 # ----------------------------------------------------------------------------
 CONFIG = {
+    # Override with environment variables CCPD_DB_DIR / ELIF_SELECTION_DIR on another machine.
     "paths": {
-        "ccpd_db": "/Users/elif/Desktop/image/CCPD2019/ccpd_db",
-        "selection_dir": "/Users/elif/Documents/Codex/2026-11-23/bu-x20/outputs/elif_ccpd_db_selection",
+        "ccpd_db": os.environ.get("CCPD_DB_DIR", "/Users/elif/Desktop/image/CCPD2019/ccpd_db"),
+        "selection_dir": os.environ.get("ELIF_SELECTION_DIR",
+                                        "/Users/elif/Documents/Codex/2026-11-23/bu-x20/outputs/elif_ccpd_db_selection"),
     },
     # Temporary ROI rectification (NOT the final Module 1 output).
     "crop": {
@@ -156,6 +158,13 @@ def _merge_lab(L, a, b):
     return cv2.cvtColor(cv2.merge([L, a, b]), cv2.COLOR_LAB2BGR)
 
 
+def apply_global_he(img_bgr, cfg=CONFIG):
+    """Global histogram equalisation of LAB-L (one mapping for the whole crop).
+    Global counterpart of CLAHE, for the report's global-vs-adaptive comparison."""
+    L, a, b = _split_lab(img_bgr)
+    return _merge_lab(cv2.equalizeHist(L), a, b)
+
+
 def apply_clahe(img_bgr, cfg=CONFIG):
     p = cfg["clahe"]
     L, a, b = _split_lab(img_bgr)
@@ -242,6 +251,36 @@ def apply_homomorphic(img_bgr, cfg=CONFIG):
     L, a, b = _split_lab(img_bgr)
     L2, diag = homomorphic_filter_channel(L, cfg)
     return _merge_lab(L2, a, b), diag
+
+
+# ----------------------------------------------------------------------------
+# Public API for the group pipeline (Module 1 crop in -> Module 3 input out)
+# ----------------------------------------------------------------------------
+METHOD_FUNCS = {
+    "original": lambda img, cfg=CONFIG: (img.copy(), {}),
+    "global_he": lambda img, cfg=CONFIG: (apply_global_he(img, cfg), {}),
+    "clahe": lambda img, cfg=CONFIG: (apply_clahe(img, cfg), {}),
+    "clahe_tophat": apply_clahe_tophat,
+    "homomorphic": apply_homomorphic,
+}
+
+
+def correct_illumination(img_bgr: np.ndarray, method: str = "clahe", cfg=CONFIG):
+    """Module 2 entry point.
+
+    img_bgr : uint8 BGR (or single-channel gray) rectified plate crop from Module 1.
+    method  : one of METHOD_FUNCS ("original", "global_he", "clahe", "clahe_tophat", "homomorphic").
+    Returns (corrected uint8 BGR image of identical size, diagnostics dict).
+    """
+    if method not in METHOD_FUNCS:
+        raise ValueError(f"unknown method {method!r}; choose from {list(METHOD_FUNCS)}")
+    if img_bgr is None or img_bgr.dtype != np.uint8:
+        raise TypeError("expected a uint8 image")
+    if img_bgr.ndim == 2:
+        img_bgr = cv2.cvtColor(img_bgr, cv2.COLOR_GRAY2BGR)
+    out, diag = METHOD_FUNCS[method](img_bgr, cfg)
+    assert out.shape == img_bgr.shape and out.dtype == np.uint8
+    return out, diag
 
 
 # ----------------------------------------------------------------------------

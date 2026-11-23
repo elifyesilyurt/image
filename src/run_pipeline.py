@@ -3,7 +3,7 @@
 Stages
   roi      : selection (30 candidates + seeded extension), ROI validation,
              temporary perspective rectification, contact sheet
-  enhance  : baseline / CLAHE / CLAHE+TopHat-BlackHat / Homomorphic on the same crops
+  enhance  : baseline / global HE / CLAHE / CLAHE+TopHat-BlackHat / Homomorphic on the same crops
   ocr      : Tesseract on every variant, CER vs CCPD ground truth
   metrics  : auxiliary image measures + summary tables
   figures  : comparison panels, parameter sweeps
@@ -28,9 +28,15 @@ PROJECT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 import module2 as m2  # noqa: E402
 
-METHODS = ["original", "clahe", "clahe_tophat", "homomorphic"]
-METHOD_LABEL = {"original": "Original (baseline)", "clahe": "CLAHE (L channel)",
-                "clahe_tophat": "CLAHE + Top/Black-Hat", "homomorphic": "Homomorphic (L channel)"}
+METHODS = ["original", "global_he", "clahe", "clahe_tophat", "homomorphic"]
+METHOD_LABEL = {"original": "Original (baseline)", "global_he": "Global HE (L channel)",
+                "clahe": "CLAHE (L channel)", "clahe_tophat": "CLAHE + Top/Black-Hat",
+                "homomorphic": "Homomorphic (L channel)"}
+METHOD_COLOR = {"original": "#7f7f7f", "global_he": "#e1a43b", "clahe": "#2a78b5",
+                "clahe_tophat": "#6aa84f", "homomorphic": "#c0504d"}
+# 'mid' is kept as the data label (traceable to the selection manifest) but CCPD-DB
+# brightness metadata is bimodal, so 'mid' is really the upper end of the dark mode.
+GROUP_LABEL = {"dark": "dark (CCPD B<=21)", "mid": "dark-upper ('mid', B 22-39)", "bright": "bright (B>=204)"}
 
 
 def safe_write_image(path, img):
@@ -175,11 +181,7 @@ def stage_enhance(out):
         if not r.crop_file:
             continue
         src = cv2.imread(os.path.join(out, r.crop_file))
-        res = {"original": (src, {})}
-        img, d = m2.apply_clahe(src), {}
-        res["clahe"] = (img, d)
-        res["clahe_tophat"] = m2.apply_clahe_tophat(src)
-        res["homomorphic"] = m2.apply_homomorphic(src)
+        res = {meth: m2.correct_illumination(src, meth) for meth in METHODS}
         for meth, (img, diag) in res.items():
             assert img.shape == src.shape and img.dtype == np.uint8, (r.id, meth)
             assert np.isfinite(img).all()
@@ -318,8 +320,24 @@ def stage_metrics(out):
     ocr = pd.read_csv(os.path.join(out, "ocr_results_per_image.csv"), keep_default_na=False)
     aux = pd.read_csv(os.path.join(out, "metrics_aux_per_image.csv"), keep_default_na=False)
     rows = []
+    # Exploratory illumination strata, measured on the ORIGINAL crop (defined after v1 results were seen):
+    #   uneven      : illum_cv (std/mean of the low-pass L field) above the median of the 50 crops
+    #   partial_glare: 5-40 % of plate pixels saturated (L >= 250)
+    o = aux[aux.method == "original"].set_index("id")
+    cv_med = float(o.illum_cv.median())
+    uneven = set(o.index[o.illum_cv > cv_med])
+    glare = set(o.index[(o.sat_hi_frac > 0.05) & (o.sat_hi_frac < 0.40)])
     subsets = [("all", ocr)] + [(f"group={g}", ocr[ocr.group == g]) for g in ["dark", "mid", "bright"]] + \
-              [("roi_status=ok", ocr[ocr.roi_status == "ok"]), ("roi_status=review_required", ocr[ocr.roi_status == "review_required"])]
+              [("roi_status=ok", ocr[ocr.roi_status == "ok"]), ("roi_status=review_required", ocr[ocr.roi_status == "review_required"])] + \
+              [(f"exploratory:uneven(illum_cv>{cv_med:.3f})", ocr[ocr.id.isin(uneven)]),
+               (f"exploratory:uniform(illum_cv<={cv_med:.3f})", ocr[~ocr.id.isin(uneven)]),
+               ("exploratory:partial_glare(5-40% saturated)", ocr[ocr.id.isin(glare)]),
+               ("exploratory:no_partial_glare", ocr[~ocr.id.isin(glare)])]
+    with open(os.path.join(out, "illumination_strata.txt"), "x", encoding="utf-8") as fh:
+        fh.write(f"median illum_cv of original crops = {cv_med:.4f}\n")
+        fh.write("uneven ids: " + ",".join(sorted(uneven)) + "\n")
+        fh.write("partial_glare ids: " + ",".join(sorted(glare)) + "\n")
+        fh.write("Strata are EXPLORATORY: defined after the first run's results were seen.\n")
     for name, sub in subsets:
         if sub.empty:
             continue
@@ -336,14 +354,14 @@ def stage_metrics(out):
                    "imgs_better_than_orig": int((d < 0).sum()) if meth != "original" else "",
                    "imgs_same_as_orig": int((d == 0).sum()) if meth != "original" else "",
                    "imgs_worse_than_orig": int((d > 0).sum()) if meth != "original" else ""}
-            if meth != "original" and name == "all":
+            if meth != "original":
                 lo, hi = _paired_bootstrap(sub, meth)
                 row["dCER_vs_orig_95CI"] = f"[{lo:+.3f}, {hi:+.3f}]"
             rows.append(row)
     summ = pd.DataFrame(rows)
     safe_to_csv(summ, os.path.join(out, "metrics_summary_ocr.csv"))
     auxs = aux.groupby(["group", "method"])[["L_mean", "L_std", "local_contrast", "grad_mean", "illum_nonuniformity",
-                                             "sat_hi_frac", "sat_lo_frac", "chroma_shift"]].mean().round(3).reset_index()
+                                             "illum_cv", "sat_hi_frac", "sat_lo_frac", "chroma_shift"]].mean().round(3).reset_index()
     safe_to_csv(auxs, os.path.join(out, "metrics_summary_aux.csv"))
     print(summ.to_string())
 
@@ -378,7 +396,7 @@ def panel(out, ids, ocr, man, fname, title=None, notes=None):
             pc = o.edit_dist / o.gt_len
             ax.set_title(f"{METHOD_LABEL[meth]}\nOCR: {o.ocr_norm or '∅'}  (CER {pc:.2f})", fontsize=9)
             ax.axis("off")
-        lab = f"{i} | group {mr.group} | CCPD brightness={mr.ccpd_brightness} blur={mr.ccpd_blurriness} | GT {mr.gt_plate} | ROI {mr.roi_status}"
+        lab = f"{i} | {GROUP_LABEL.get(mr.group, mr.group)} | CCPD brightness={mr.ccpd_brightness} blur={mr.ccpd_blurriness} | GT {mr.gt_plate} | ROI {mr.roi_status}"
         if notes and i in notes:
             lab += f"\n{notes[i]}"
         axes[a, 0].annotate(lab, xy=(0, 1.0), xycoords="axes fraction", xytext=(0, 30), textcoords="offset points",
@@ -405,25 +423,40 @@ def stage_figures(out):
         gi = list(man[(man.group == g) & (man.crop_file != "")].id)
         for k in range(0, len(gi), 10):
             panel(out, gi[k:k + 10], ocr, man, f"overview_{g}_{k // 10 + 1}.png",
-                  title=f"Group '{g}' (CCPD brightness metadata) - original vs. illumination correction")
-    # CER bar chart
+                  title=f"Group {GROUP_LABEL[g]} - original vs. illumination correction")
+    # CER bar charts
     summ = pd.read_csv(os.path.join(out, "metrics_summary_ocr.csv"), keep_default_na=False)
-    sub = summ[summ.subset.isin(["all", "group=dark", "group=mid", "group=bright"])]
-    fig, ax = plt.subplots(figsize=(9, 4.2))
-    xs = np.arange(4)
-    colors = ["#7f7f7f", "#2a78b5", "#6aa84f", "#c0504d"]
-    for k, meth in enumerate(METHODS):
-        vals = [sub[(sub.subset == s) & (sub.method == meth)].CER_full.values[0] for s in ["all", "group=dark", "group=mid", "group=bright"]]
-        bars = ax.bar(xs + (k - 1.5) * 0.2, vals, 0.2, label=METHOD_LABEL[meth], color=colors[k])
-        for bb, v in zip(bars, vals):
-            ax.text(bb.get_x() + bb.get_width() / 2, v + 0.01, f"{v:.2f}", ha="center", fontsize=7)
-    ns = [int(sub[(sub.subset == s) & (sub.method == 'original')].n_images.values[0]) for s in ["all", "group=dark", "group=mid", "group=bright"]]
-    ax.set_xticks(xs, [f"all (n={ns[0]})", f"dark (n={ns[1]})", f"mid (n={ns[2]})", f"bright (n={ns[3]})"])
-    ax.set_ylabel("CER (lower is better)")
-    ax.set_title("Tesseract 5.5.4 (chi_sim, psm 8) CER on the same 440x140 crops")
-    ax.legend(fontsize=8, ncol=2)
-    ax.set_ylim(0, 1.1)
-    fig.tight_layout(); fig.savefig(os.path.join(out, "figures/cer_by_group.png"), dpi=170); plt.close(fig)
+    colors = [METHOD_COLOR[m] for m in METHODS]
+
+    def bars(subsets, xlabels, title, fname):
+        sub = summ[summ.subset.isin(subsets)]
+        fig, ax = plt.subplots(figsize=(10.5, 4.4))
+        xs = np.arange(len(subsets))
+        w = 0.8 / len(METHODS)
+        for k, meth in enumerate(METHODS):
+            vals = [sub[(sub.subset == s) & (sub.method == meth)].CER_full.values[0] for s in subsets]
+            bb = ax.bar(xs + (k - (len(METHODS) - 1) / 2) * w, vals, w, label=METHOD_LABEL[meth], color=METHOD_COLOR[meth])
+            for b_, v in zip(bb, vals):
+                ax.text(b_.get_x() + b_.get_width() / 2, v + 0.01, f"{v:.2f}", ha="center", fontsize=6.5)
+        ns = [int(sub[(sub.subset == s) & (sub.method == "original")].n_images.values[0]) for s in subsets]
+        ax.set_xticks(xs, [f"{l}\n(n={n})" for l, n in zip(xlabels, ns)])
+        ax.set_ylabel("CER (lower is better)")
+        ax.set_title(title, fontsize=10)
+        ax.legend(fontsize=7.5, ncol=3, loc="upper left")
+        ax.set_ylim(0, 1.15)
+        fig.tight_layout()
+        p = os.path.join(out, "figures", fname)
+        if os.path.exists(p):
+            raise FileExistsError(p)
+        fig.savefig(p, dpi=170); plt.close(fig)
+
+    bars(["all", "group=dark", "group=mid", "group=bright"],
+         ["all", GROUP_LABEL["dark"], GROUP_LABEL["mid"], GROUP_LABEL["bright"]],
+         "Tesseract 5.5.4 (chi_sim, psm 8) CER on the same 440x140 crops", "cer_by_group.png")
+    ex_sub = [s for s in summ.subset.unique() if s.startswith("exploratory:")]
+    bars(ex_sub, [s.replace("exploratory:", "").replace("(", "\n(") for s in ex_sub],
+         "EXPLORATORY strata measured on the original crop (defined after first results) - CER",
+         "cer_by_illumination_exploratory.png")
     # representative success / unchanged / failure examples (ids + notes from review/visual_review.csv)
     rv_path = os.path.join(PROJECT, "review", "visual_review.csv")
     if os.path.exists(rv_path):
@@ -442,7 +475,7 @@ def stage_figures(out):
         for meth, c in zip(METHODS, colors):
             L = m2.luminance(cv2.imread(os.path.join(out, f"crops/{meth}/{i}.png")))
             ax.hist(L.ravel(), bins=64, range=(0, 255), histtype="step", color=c, label=METHOD_LABEL[meth], density=True)
-        ax.set_title(f"{i} - L channel histogram"); ax.set_xlabel("L (0-255)")
+        ax.set_title(f"{i} - L channel histogram", fontsize=9); ax.set_xlabel("L (0-255)")
     np.atleast_1d(axes)[0].legend(fontsize=7)
     fig.tight_layout(); fig.savefig(os.path.join(out, "figures/luminance_histograms.png"), dpi=170); plt.close(fig)
 
