@@ -267,6 +267,7 @@ def aux_metrics(img_bgr, ref_bgr=None):
         "local_contrast": lstd.mean(),
         "grad_mean": np.sqrt(gx ** 2 + gy ** 2).mean(),
         "illum_nonuniformity": lowfreq.std(),
+        "illum_cv": lowfreq.std() / max(lowfreq.mean(), 1.0),   # brightness-independent
         "sat_hi_frac": float((L >= 250).mean()),
         "sat_lo_frac": float((L <= 5).mean()),
     }

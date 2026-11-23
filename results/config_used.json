@@ -1,0 +1,59 @@
+{
+  "paths": {
+    "ccpd_db": "/Users/elif/Desktop/image/CCPD2019/ccpd_db",
+    "selection_dir": "/Users/elif/Documents/Codex/2026-11-23/bu-x20/outputs/elif_ccpd_db_selection"
+  },
+  "crop": {
+    "width": 440,
+    "height": 140,
+    "interpolation": "INTER_CUBIC",
+    "min_plate_width_px": 150,
+    "min_plate_height_px": 45
+  },
+  "extension": {
+    "seed": 2026,
+    "n_dark": 10,
+    "n_bright": 10,
+    "dark_max": 21,
+    "bright_min": 204,
+    "min_plate_width_px": 150
+  },
+  "clahe": {
+    "color_space": "LAB",
+    "clip_limit": 2.0,
+    "tile_grid": [
+      8,
+      2
+    ]
+  },
+  "tophat": {
+    "se_factor": 2.0,
+    "stroke_min": 3,
+    "stroke_max": 25,
+    "stroke_fallback_ratio": 0.07142857142857142,
+    "weight": 1.0
+  },
+  "homomorphic": {
+    "color_space": "LAB",
+    "gamma_low": 0.5,
+    "gamma_high": 1.5,
+    "c": 1.0,
+    "d0": 10.0,
+    "pad": "reflect",
+    "norm_percentiles": [
+      0.5,
+      99.5
+    ]
+  },
+  "ocr": {
+    "engine": "tesseract",
+    "lang": "chi_sim",
+    "oem": 1,
+    "psm": 8,
+    "grayscale": true,
+    "whitelist": true,
+    "tessdata_dir": "ocr/tessdata",
+    "calibration_seed": 7,
+    "calibration_n": 20
+  }
+}

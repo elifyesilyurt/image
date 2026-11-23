@@ -237,6 +237,217 @@ def stage_sweep(out):
 
 
 # ----------------------------------------------------------------------------
+def stage_calibrate(out):
+    """Re-runs the OCR-config grid on the separate calibration set and saves it."""
+    import itertools
+    import pytesseract
+    cfg = m2.CONFIG
+    db = cfg["paths"]["ccpd_db"]
+    used = set(load_manifest(out)["filename"])
+    pool = [f for f in sorted(os.listdir(db)) if f.endswith(".jpg") and f not in used]
+    cal = random.Random(cfg["ocr"]["calibration_seed"]).sample(pool, cfg["ocr"]["calibration_n"])
+    crops = []
+    for f in cal:
+        r = m2.parse_ccpd_name(f)
+        crops.append((f, r.plate_text, r.brightness, m2.rectify_plate(cv2.imread(os.path.join(db, f)), r)))
+    td = os.path.join(PROJECT, cfg["ocr"]["tessdata_dir"])
+    wl = "".join(m2.PROVINCES[:-1]) + "ABCDEFGHJKLMNPQRSTUVWXYZ0123456789"
+    rows = []
+    for h, gray, pad, psm, use_wl in itertools.product([140, 70, 48], [False, True], [0, 12], [7, 8, 13], [True, False]):
+        conf = f'--tessdata-dir "{td}" --oem 1 --psm {psm}' + (f" -c tessedit_char_whitelist={wl}" if use_wl else "")
+        E = N = empty = 0
+        for _, gt, _, c in crops:
+            x = cv2.resize(c, (int(440 * h / 140), h), interpolation=cv2.INTER_AREA if h < 140 else cv2.INTER_CUBIC)
+            if gray:
+                x = cv2.cvtColor(x, cv2.COLOR_BGR2GRAY)
+            if pad:
+                x = cv2.copyMakeBorder(x, pad, pad, pad, pad, cv2.BORDER_REPLICATE)
+            p = m2.normalize_plate(pytesseract.image_to_string(x, lang="chi_sim", config=conf))
+            E += m2.levenshtein(p, gt); N += len(gt); empty += (p == "")
+        rows.append({"height": h, "grayscale": gray, "pad": pad, "psm": psm, "whitelist": use_wl,
+                     "cer": round(E / N, 4), "empty_outputs": empty})
+    safe_to_csv(pd.DataFrame(rows).sort_values("cer"), os.path.join(out, "ocr_calibration_grid.csv"))
+    safe_to_csv(pd.DataFrame([{"filename": f, "gt_plate": g, "ccpd_brightness": b} for f, g, b, _ in crops]),
+                os.path.join(out, "ocr_calibration_set.csv"))
+
+
+def stage_ocr(out):
+    import pytesseract
+    df = load_manifest(out)
+    rows = []
+    for r in df.itertuples():
+        if not r.crop_file:
+            continue
+        gt = m2.normalize_plate(r.gt_plate)
+        for meth in METHODS:
+            img = cv2.imread(os.path.join(out, f"crops/{meth}/{r.id}.png"))
+            raw, conf = m2.run_ocr(img, PROJECT)
+            pred = m2.normalize_plate(raw)
+            pred_alnum = "".join(c for c in pred if not ("一" <= c <= "鿿"))
+            rows.append({"id": r.id, "group": r.group, "roi_status": r.roi_status, "method": meth,
+                         "gt": gt, "ocr_raw": raw.replace("\n", " "), "ocr_norm": pred,
+                         "edit_dist": m2.levenshtein(pred, gt), "gt_len": len(gt),
+                         "edit_dist_alnum": m2.levenshtein(pred_alnum, gt[1:]), "gt_len_alnum": len(gt) - 1,
+                         "exact_match": pred == gt, "empty": pred == ""})
+    safe_to_csv(pd.DataFrame(rows), os.path.join(out, "ocr_results_per_image.csv"))
+    with open(os.path.join(out, "ocr_settings.txt"), "x", encoding="utf-8") as fh:
+        fh.write(f"tesseract {pytesseract.get_tesseract_version()}; pytesseract {pytesseract.__version__}\n")
+        fh.write(f"lang={m2.CONFIG['ocr']['lang']}; config: {conf.replace(PROJECT + '/', '')}\n")
+        fh.write("Input: 440x140 crop of each method, converted BGR->GRAY (cv2), no other preprocessing.\n")
+
+
+def _cer(g, col="edit_dist", n="gt_len"):
+    return g[col].sum() / g[n].sum()
+
+
+def _paired_bootstrap(per_img, meth, n_boot=5000, seed=0):
+    """95% CI of CER(method) - CER(original), resampling images (paired)."""
+    piv_e = per_img.pivot(index="id", columns="method", values="edit_dist")
+    piv_n = per_img.pivot(index="id", columns="method", values="gt_len")
+    ids = piv_e.index.values
+    rng = np.random.default_rng(seed)
+    diffs = []
+    for _ in range(n_boot):
+        s = rng.choice(len(ids), len(ids), replace=True)
+        n = piv_n["original"].values[s].sum()
+        diffs.append((piv_e[meth].values[s].sum() - piv_e["original"].values[s].sum()) / n)
+    return np.percentile(diffs, [2.5, 97.5])
+
+
+def stage_metrics(out):
+    ocr = pd.read_csv(os.path.join(out, "ocr_results_per_image.csv"), keep_default_na=False)
+    aux = pd.read_csv(os.path.join(out, "metrics_aux_per_image.csv"), keep_default_na=False)
+    rows = []
+    subsets = [("all", ocr)] + [(f"group={g}", ocr[ocr.group == g]) for g in ["dark", "mid", "bright"]] + \
+              [("roi_status=ok", ocr[ocr.roi_status == "ok"]), ("roi_status=review_required", ocr[ocr.roi_status == "review_required"])]
+    for name, sub in subsets:
+        if sub.empty:
+            continue
+        base = sub[sub.method == "original"].set_index("id")
+        for meth in METHODS:
+            g = sub[sub.method == meth]
+            cur = g.set_index("id")
+            d = (cur["edit_dist"] - base["edit_dist"])
+            row = {"subset": name, "method": meth, "n_images": len(g),
+                   "CER_full": round(_cer(g), 4),
+                   "CER_alnum_6": round(_cer(g, "edit_dist_alnum", "gt_len_alnum"), 4),
+                   "exact_match": int(g["exact_match"].astype(str).eq("True").sum()),
+                   "empty_outputs": int(g["empty"].astype(str).eq("True").sum()),
+                   "imgs_better_than_orig": int((d < 0).sum()) if meth != "original" else "",
+                   "imgs_same_as_orig": int((d == 0).sum()) if meth != "original" else "",
+                   "imgs_worse_than_orig": int((d > 0).sum()) if meth != "original" else ""}
+            if meth != "original" and name == "all":
+                lo, hi = _paired_bootstrap(sub, meth)
+                row["dCER_vs_orig_95CI"] = f"[{lo:+.3f}, {hi:+.3f}]"
+            rows.append(row)
+    summ = pd.DataFrame(rows)
+    safe_to_csv(summ, os.path.join(out, "metrics_summary_ocr.csv"))
+    auxs = aux.groupby(["group", "method"])[["L_mean", "L_std", "local_contrast", "grad_mean", "illum_nonuniformity",
+                                             "sat_hi_frac", "sat_lo_frac", "chroma_shift"]].mean().round(3).reset_index()
+    safe_to_csv(auxs, os.path.join(out, "metrics_summary_aux.csv"))
+    print(summ.to_string())
+
+
+# ----------------------------------------------------------------------------
+def _setup_mpl():
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    plt.rcParams["font.family"] = ["Arial Unicode MS", "Hiragino Sans GB", "DejaVu Sans"]
+    return plt
+
+
+def _rgb(path):
+    return cv2.cvtColor(cv2.imread(path), cv2.COLOR_BGR2RGB)
+
+
+def panel(out, ids, ocr, man, fname, title=None, notes=None):
+    plt = _setup_mpl()
+    row_h = 2.55 if notes else 2.25
+    top_pad = 0.75 if title else 0.15
+    H = row_h * len(ids) + top_pad
+    fig, axes = plt.subplots(len(ids), len(METHODS), figsize=(4.2 * len(METHODS), H), squeeze=False)
+    fig.subplots_adjust(left=0.01, right=0.99, bottom=0.01, top=1 - top_pad / H, wspace=0.05,
+                        hspace=(0.85 if notes else 1.0))
+    for a, i in enumerate(ids):
+        mr = man.set_index("id").loc[i]
+        for b, meth in enumerate(METHODS):
+            ax = axes[a, b]
+            ax.imshow(_rgb(os.path.join(out, f"crops/{meth}/{i}.png")))
+            o = ocr[(ocr.id == i) & (ocr.method == meth)].iloc[0]
+            pc = o.edit_dist / o.gt_len
+            ax.set_title(f"{METHOD_LABEL[meth]}\nOCR: {o.ocr_norm or '∅'}  (CER {pc:.2f})", fontsize=9)
+            ax.axis("off")
+        lab = f"{i} | group {mr.group} | CCPD brightness={mr.ccpd_brightness} blur={mr.ccpd_blurriness} | GT {mr.gt_plate} | ROI {mr.roi_status}"
+        if notes and i in notes:
+            lab += f"\n{notes[i]}"
+        axes[a, 0].annotate(lab, xy=(0, 1.0), xycoords="axes fraction", xytext=(0, 30), textcoords="offset points",
+                            fontsize=9.5, fontweight="bold", va="bottom", ha="left", color="#1f3b5a")
+    if title:
+        fig.suptitle(title, fontsize=12, fontweight="bold", y=1 - 0.15 / H)
+    p = os.path.join(out, "figures", fname)
+    if os.path.exists(p):
+        raise FileExistsError(p)
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    fig.savefig(p, dpi=170); plt.close(fig)
+
+
+def stage_figures(out):
+    plt = _setup_mpl()
+    man = load_manifest(out)
+    ocr = pd.read_csv(os.path.join(out, "ocr_results_per_image.csv"), keep_default_na=False)
+    ids = list(man[man.crop_file != ""].id)
+    # every image: one panel file per image
+    for i in ids:
+        panel(out, [i], ocr, man, f"panels/{i}.png")
+    # overview per group
+    for g in ["dark", "mid", "bright"]:
+        gi = list(man[(man.group == g) & (man.crop_file != "")].id)
+        for k in range(0, len(gi), 10):
+            panel(out, gi[k:k + 10], ocr, man, f"overview_{g}_{k // 10 + 1}.png",
+                  title=f"Group '{g}' (CCPD brightness metadata) - original vs. illumination correction")
+    # CER bar chart
+    summ = pd.read_csv(os.path.join(out, "metrics_summary_ocr.csv"), keep_default_na=False)
+    sub = summ[summ.subset.isin(["all", "group=dark", "group=mid", "group=bright"])]
+    fig, ax = plt.subplots(figsize=(9, 4.2))
+    xs = np.arange(4)
+    colors = ["#7f7f7f", "#2a78b5", "#6aa84f", "#c0504d"]
+    for k, meth in enumerate(METHODS):
+        vals = [sub[(sub.subset == s) & (sub.method == meth)].CER_full.values[0] for s in ["all", "group=dark", "group=mid", "group=bright"]]
+        bars = ax.bar(xs + (k - 1.5) * 0.2, vals, 0.2, label=METHOD_LABEL[meth], color=colors[k])
+        for bb, v in zip(bars, vals):
+            ax.text(bb.get_x() + bb.get_width() / 2, v + 0.01, f"{v:.2f}", ha="center", fontsize=7)
+    ns = [int(sub[(sub.subset == s) & (sub.method == 'original')].n_images.values[0]) for s in ["all", "group=dark", "group=mid", "group=bright"]]
+    ax.set_xticks(xs, [f"all (n={ns[0]})", f"dark (n={ns[1]})", f"mid (n={ns[2]})", f"bright (n={ns[3]})"])
+    ax.set_ylabel("CER (lower is better)")
+    ax.set_title("Tesseract 5.5.4 (chi_sim, psm 8) CER on the same 440x140 crops")
+    ax.legend(fontsize=8, ncol=2)
+    ax.set_ylim(0, 1.1)
+    fig.tight_layout(); fig.savefig(os.path.join(out, "figures/cer_by_group.png"), dpi=170); plt.close(fig)
+    # representative success / unchanged / failure examples (ids + notes from review/visual_review.csv)
+    rv_path = os.path.join(PROJECT, "review", "visual_review.csv")
+    if os.path.exists(rv_path):
+        rv = pd.read_csv(rv_path)
+        rv = rv[rv.id.isin(ids)]
+        for cat in ["success", "unchanged", "failure"]:
+            sub = rv[rv.category == cat]
+            if len(sub):
+                notes = {r.id: f"[{cat.upper()}] {r.selection_reason}" for r in sub.itertuples()}
+                panel(out, list(sub.id), ocr, man, f"representative_{cat}.png", notes=notes,
+                      title=f"Representative {cat} examples (Module 2, same crops, same OCR settings)")
+    # luminance histograms for 3 examples
+    ex = [i for i in ["S06", "S17", "S23"] if i in ids]
+    fig, axes = plt.subplots(1, len(ex), figsize=(5 * len(ex), 3.2))
+    for ax, i in zip(np.atleast_1d(axes), ex):
+        for meth, c in zip(METHODS, colors):
+            L = m2.luminance(cv2.imread(os.path.join(out, f"crops/{meth}/{i}.png")))
+            ax.hist(L.ravel(), bins=64, range=(0, 255), histtype="step", color=c, label=METHOD_LABEL[meth], density=True)
+        ax.set_title(f"{i} - L channel histogram"); ax.set_xlabel("L (0-255)")
+    np.atleast_1d(axes)[0].legend(fontsize=7)
+    fig.tight_layout(); fig.savefig(os.path.join(out, "figures/luminance_histograms.png"), dpi=170); plt.close(fig)
+
+
+# ----------------------------------------------------------------------------
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)

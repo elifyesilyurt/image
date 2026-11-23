@@ -1,0 +1,3 @@
+Original 30 candidates: elif_ccpd_db_selection/manifest.csv (seed 42; 10 dark/10 mid/10 bright by CCPD filename brightness metadata).
+Extension (20): random.Random(2026).sample over sorted ccpd_db filenames not in the 30-candidate list, ROI valid and plate width >= 150px; dark: brightness <= 21 (pool 2231), bright: brightness >= 204 (pool 1587)
+Group labels use CCPD filename brightness metadata (plate-region brightness as annotated by CCPD), not a local light measurement.
