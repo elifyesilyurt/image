@@ -468,6 +468,13 @@ def stage_figures(out):
                 notes = {r.id: f"[{cat.upper()}] {r.selection_reason}" for r in sub.itertuples()}
                 panel(out, list(sub.id), ocr, man, f"representative_{cat}.png", notes=notes,
                       title=f"Representative {cat} examples (Module 2, same crops, same OCR settings)")
+    # global HE vs adaptive methods on two crops (report's global-vs-adaptive comparison)
+    gva = {"S06": "[GLOBAL HE FAILURE] largest global-HE CER increase (edit distance 1 -> 6); "
+                  "CLAHE/Homomorphic keep it at 1",
+           "S39": "[GLOBAL vs ADAPTIVE] global HE 5 -> 6, CLAHE 5 -> 5, Homomorphic 5 -> 2"}
+    if all(i in ids for i in gva):
+        panel(out, list(gva), ocr, man, "representative_global_vs_adaptive.png", notes=gva,
+              title="Global HE vs adaptive methods on the same crops")
     # luminance histograms for 3 examples
     ex = [i for i in ["S06", "S17", "S23"] if i in ids]
     fig, axes = plt.subplots(1, len(ex), figsize=(5 * len(ex), 3.2))
